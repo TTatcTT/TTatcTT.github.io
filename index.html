@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiTrackList - Gestor de Contenidos Personal</title>
+    <!-- Tailwind CSS para diseño moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        },
+                        dark: {
+                            bg: '#090d16',
+                            card: '#121824',
+                            border: '#1e293b',
+                            accent: '#1e1b4b'
+                        }
+                    },
+                    animation: {
+                        'spin-slow': 'spin 2s linear infinite',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- React y Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #090d16;
+            color: #f1f5f9;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #090d16; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback } = React;
+
+        // Categorías soportadas
+        const CATEGORIES = [
+            { id: 'peliculas', name: 'Películas', icon: 'film', color: 'text-rose-400', bg: 'bg-rose-500/10' },
+            { id: 'series', name: 'Series', icon: 'tv', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+            { id: 'videojuegos', name: 'Videojuegos', icon: 'gamepad-2', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+            { id: 'libros', name: 'Libros', icon: 'book-open', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+            { id: 'anime', name: 'Anime', icon: 'sparkles', color: 'text-violet-400', bg: 'bg-violet-500/10' },
+            { id: 'manga', name: 'Manga', icon: 'book', color: 'text-sky-400', bg: 'bg-sky-500/10' },
+            { id: 'novelas_ligeras', name: 'Novelas Ligeras', icon: 'feather', color: 'text-pink-400', bg: 'bg-pink-500/10' },
+            { id: 'comics', name: 'Cómics', icon: 'layout', color: 'text-orange-400', bg: 'bg-orange-500/10' }
+        ];
+
+        // Estados disponibles
+        const STATUSES = [
+            { id: 'pendiente', name: 'Pendiente', icon: '⏳', color: 'text-slate-400 bg-slate-500/10' },
+            { id: 'progreso', name: 'En progreso', icon: '🔄', color: 'text-blue-400 bg-blue-500/10' },
+            { id: 'completado', name: 'Completado', icon: '✅', color: 'text-green-400 bg-green-500/10' },
+            { id: 'pausa', name: 'En pausa', icon: '⏸️', color: 'text-yellow-400 bg-yellow-500/10' },
+            { id: 'abandonado', name: 'Abandonado', icon: '❌', color: 'text-red-400 bg-red-500/10' }
+        ];
+
+        const Icon = ({ name, className = 'w-5 h-5' }) => {
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            }, [name, className]);
+            return <i data-lucide={name} class={`${className}`}></i>;
+        };
+
+        // Modal de Configuración de la Nube
+        const CloudSettingsModal = ({ config, onSave, onClose, syncStatus }) => {
+            const [apiKey, setApiKey] = useState(config?.apiKey || '');
+            const [binId, setBinId] = useState(config?.binId || '');
+
+            const handleSubmit = (e, action) => {
+                e.preventDefault();
+                onSave({ apiKey, binId }, action);
+            };
+
+            return (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-dark-card border border-dark-border rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+                        <div className="flex justify-between items-start mb-4">
+                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Icon name="cloud" className="text-indigo-400" /> Sincronización en la Nube
+                            </h3>
+                            <button onClick={onClose} className="text-gray-400 hover:text-white"><Icon name="x" /></button>
+                        </div>
+                        
+                        <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl mb-6 text-sm text-blue-200">
+                            <p className="mb-2">Para acceder a tus datos desde cualquier dispositivo, usa <a href="https://jsonbin.io/" target="_blank" className="font-bold underline text-blue-400">JSONBin.io</a> (es gratis):</p>
+                            <ol className="list-decimal pl-4 space-y-1">
+                                <li>Crea una cuenta y ve a tus Access Keys para copiar tu <strong>API Key</strong>.</li>
+                                <li>Crea un nuevo Bin vacío y copia su <strong>Bin ID</strong>.</li>
+                                <li>Pega ambos aquí. Tus datos se guardarán privadamente allí.</li>
+                            </ol>
+                        </div>
+
+                        <form className="space-y-4">
+                            <div>
+                                <label className="text-sm font-semibold text-gray-300 block mb-1">API Key (X-Master-Key)</label>
+                                <input 
+                                    type="password" 
+                                    value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+                                    placeholder="$2a$10$..." 
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white focus:border-indigo-500 outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-semibold text-gray-300 block mb-1">Bin ID</label>
+                                <input 
+                                    type="text" 
+                                    value={binId} onChange={(e) => setBinId(e.target.value)}
+                                    placeholder="65a..." 
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white focus:border-indigo-500 outline-none"
+                                />
+                            </div>
+
+                            <div className="pt-4 flex flex-col gap-3">
+                                <button 
+                                    onClick={(e) => handleSubmit(e, 'download')}
+                                    disabled={!apiKey || !binId || syncStatus === 'syncing'}
+                                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-medium transition-colors flex justify-center items-center gap-2"
+                                >
+                                    <Icon name="download-cloud" className="w-4 h-4" /> Bajar datos de la nube
+                                </button>
+                                <button 
+                                    onClick={(e) => handleSubmit(e, 'upload')}
+                                    disabled={!apiKey || !binId || syncStatus === 'syncing'}
+                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl font-medium transition-colors flex justify-center items-center gap-2"
+                                >
+                                    <Icon name="upload-cloud" className="w-4 h-4" /> Subir datos locales actuales
+                                </button>
+                                {config && (
+                                    <button 
+                                        onClick={(e) => { e.preventDefault(); onSave(null, 'disconnect'); }}
+                                        className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-sm transition-colors mt-2"
+                                    >
+                                        Desconectar Nube
+                                    </button>
+                                )}
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Resto de Componentes (Dashboard, MyList, ItemForm, ItemDetailModal) se mantienen exactamente igual que en el código original ---
+        const ItemDetailModal = ({ item, onClose, onEdit, onDelete }) => {
+            const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+            if (!item) return null;
+            const statusObj = STATUSES.find(s => s.id === item.status);
+            const catObj = CATEGORIES.find(c => c.id === item.category);
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-dark-card border border-dark-border rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
+                        
+                        <div className="md:w-1/3 relative bg-slate-900 h-56 md:h-auto shrink-0">
+                            <img 
+                                src={item.cover || `https://placehold.co/400x600/1e293b/cbd5e1?text=${encodeURIComponent(item.title)}`} 
+                                alt={item.title} 
+                                className="w-full h-full object-cover"
+                                onError={(e) => { e.target.src = `https://placehold.co/400x600/1e293b/cbd5e1?text=${encodeURIComponent(item.title)}` }}
+                            />
+                            <div className="absolute top-3 left-3 bg-dark-bg/80 backdrop-blur border border-dark-border px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5">
+                                <span className={catObj?.color}><Icon name={catObj?.icon || 'help-circle'} className="w-3.5 h-3.5 inline" /></span>
+                                <span className="text-gray-200">{catObj?.name}</span>
+                            </div>
+                        </div>
+
+                        <div className="md:w-2/3 p-6 flex flex-col overflow-y-auto">
+                            <div className="flex justify-between items-start gap-4 mb-4">
+                                <div>
+                                    <h3 className="text-2xl font-bold text-white tracking-tight">{item.title}</h3>
+                                    {item.originalTitle && <p className="text-gray-400 text-sm italic">{item.originalTitle}</p>}
+                                </div>
+                                <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg text-gray-400 hover:text-white transition-colors">
+                                    <Icon name="x" className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 mb-6">
+                                <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 ${statusObj?.color}`}>
+                                    <span>{statusObj?.icon}</span>
+                                    <span>{statusObj?.name}</span>
+                                </span>
+                                {item.score > 0 && (
+                                    <span className="px-3 py-1 bg-yellow-500/10 text-yellow-400 rounded-full text-xs font-semibold flex items-center gap-1">
+                                        ⭐ {item.score} / 10
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="bg-slate-900/50 border border-dark-border rounded-xl p-4 mb-6 grid grid-cols-2 gap-y-3 gap-x-4 text-xs sm:text-sm">
+                                {item.category === 'videojuegos' && (
+                                    <>
+                                        <div><span className="text-gray-400 block">Horas Jugadas</span> <strong className="text-gray-200">{item.specifics?.hours || '0'} hrs</strong></div>
+                                        <div><span className="text-gray-400 block">Plataforma</span> <strong className="text-gray-200">{item.specifics?.platform || 'No indicada'}</strong></div>
+                                        <div className="col-span-2"><span className="text-gray-400 block">Desarrolladora</span> <strong className="text-gray-200">{item.specifics?.developer || 'No indicada'}</strong></div>
+                                    </>
+                                )}
+                                {['libros', 'novelas_ligeras'].includes(item.category) && (
+                                    <>
+                                        <div><span className="text-gray-400 block">Progreso</span> <strong className="text-gray-200">{item.specifics?.chapters || '0'} / {item.specifics?.totalChapters || '?'} caps</strong></div>
+                                        <div><span className="text-gray-400 block">Formato</span> <strong className="text-gray-200">{item.specifics?.format || 'No indicado'}</strong></div>
+                                        <div className="col-span-2"><span className="text-gray-400 block">Autor / Ilustrador</span> <strong className="text-gray-200">{item.specifics?.author || 'No indicado'}</strong></div>
+                                    </>
+                                )}
+                                {item.category === 'peliculas' && (
+                                    <>
+                                        <div><span className="text-gray-400 block">Visto en</span> <strong className="text-gray-200">{item.specifics?.platform || 'No indicado'}</strong></div>
+                                        <div><span className="text-gray-400 block">Progreso</span> <strong className="text-gray-200">{item.specifics?.minutes || '0'} / {item.specifics?.duration || '?'} min</strong></div>
+                                        <div className="col-span-2"><span className="text-gray-400 block">Director</span> <strong className="text-gray-200">{item.specifics?.director || 'No indicado'}</strong></div>
+                                    </>
+                                )}
+                                {['series', 'anime'].includes(item.category) && (
+                                    <>
+                                        <div><span className="text-gray-400 block">Episodio Actual</span> <strong className="text-gray-200">{item.specifics?.episode || '0'} / {item.specifics?.totalEpisodes || '?'}</strong></div>
+                                        <div><span className="text-gray-400 block">Streaming</span> <strong className="text-gray-200">{item.specifics?.platform || 'No indicado'}</strong></div>
+                                        <div className="col-span-2"><span className="text-gray-400 block">Estudio / Temporada</span> <strong className="text-gray-200">{item.specifics?.studio || 'N/A'} {item.specifics?.season ? `(${item.specifics.season})` : ''}</strong></div>
+                                    </>
+                                )}
+                                {['manga', 'comics'].includes(item.category) && (
+                                    <>
+                                        <div><span className="text-gray-400 block">Capítulo/Vol.</span> <strong className="text-gray-200">{item.specifics?.episode || '0'} / {item.specifics?.totalEpisodes || '?'}</strong></div>
+                                        <div><span className="text-gray-400 block">Formato</span> <strong className="text-gray-200">{item.specifics?.format || 'No indicado'}</strong></div>
+                                        <div className="col-span-2"><span className="text-gray-400 block">Mangaka / Creador</span> <strong className="text-gray-200">{item.specifics?.author || 'No indicado'}</strong></div>
+                                    </>
+                                )}
+                                <div><span className="text-gray-400 block">Fecha Inicio</span> <span className="text-gray-200 font-medium">{item.startDate || '-'}</span></div>
+                                <div><span className="text-gray-400 block">Fecha Fin</span> <span className="text-gray-200 font-medium">{item.endDate || '-'}</span></div>
+                            </div>
+
+                            {item.notes && (
+                                <div className="mb-8">
+                                    <h4 className="text-lg font-semibold mb-2 text-gray-200 border-b border-slate-700 pb-2">Reseña / Notas</h4>
+                                    <p className="text-gray-300 leading-relaxed whitespace-pre-wrap text-sm sm:text-base">{item.notes}</p>
+                                </div>
+                            )}
+
+                            <div className="mt-auto pt-6 flex gap-3 flex-wrap">
+                                {!showConfirmDelete ? (
+                                    <>
+                                        <button onClick={() => onEdit(item)} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium transition-colors">Editar</button>
+                                        <button onClick={() => setShowConfirmDelete(true)} className="px-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl transition-colors">Eliminar</button>
+                                    </>
+                                ) : (
+                                    <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-3 bg-red-500/10 border border-red-500/30 p-3 rounded-xl">
+                                        <span className="text-red-400 text-sm font-medium">¿Seguro que deseas eliminarlo?</span>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setShowConfirmDelete(false)} className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm">Cancelar</button>
+                                            <button onClick={() => onDelete(item.id)} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold">Sí, eliminar</button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ items, onCategoryClick, onItemClick }) => {
+            const inProgress = items.filter(i => i.status === 'progreso');
+            const stats = useMemo(() => {
+                const total = items.length;
+                const completed = items.filter(i => i.status === 'completado').length;
+                const scores = items.filter(i => i.score > 0);
+                const average = scores.length > 0 ? (scores.reduce((a, b) => a + Number(b.score), 0) / scores.length).toFixed(1) : '0';
+                
+                const catCounts = items.reduce((acc, curr) => { acc[curr.category] = (acc[curr.category] || 0) + 1; return acc; }, {});
+                let favoriteCat = 'Ninguna', max = 0;
+                Object.keys(catCounts).forEach(cat => { if (catCounts[cat] > max) { max = catCounts[cat]; favoriteCat = CATEGORIES.find(c => c.id === cat)?.name; }});
+                return { total, completed, average, favoriteCat };
+            }, [items]);
+
+            return (
+                <div className="space-y-8 max-w-7xl mx-auto px-4 md:px-0">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-dark-card border border-dark-border p-5 rounded-2xl flex items-center justify-between">
+                            <div><span className="text-gray-400 text-xs sm:text-sm font-medium">Total</span><h4 className="text-2xl sm:text-3xl font-bold text-white mt-1">{stats.total}</h4></div>
+                            <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl"><Icon name="database" /></div>
+                        </div>
+                        <div className="bg-dark-card border border-dark-border p-5 rounded-2xl flex items-center justify-between">
+                            <div><span className="text-gray-400 text-xs sm:text-sm font-medium">Completados</span><h4 className="text-2xl sm:text-3xl font-bold text-emerald-400 mt-1">{stats.completed}</h4></div>
+                            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl"><Icon name="check-circle" /></div>
+                        </div>
+                        <div className="bg-dark-card border border-dark-border p-5 rounded-2xl flex items-center justify-between">
+                            <div><span className="text-gray-400 text-xs sm:text-sm font-medium">Media Notas</span><h4 className="text-2xl sm:text-3xl font-bold text-yellow-400 mt-1">⭐ {stats.average}</h4></div>
+                            <div className="p-3 bg-yellow-500/10 text-yellow-400 rounded-xl"><Icon name="star" /></div>
+                        </div>
+                        <div className="bg-dark-card border border-dark-border p-5 rounded-2xl flex items-center justify-between">
+                            <div><span className="text-gray-400 text-xs sm:text-sm font-medium">Fav. Categoría</span><h4 className="text-base sm:text-lg font-bold text-violet-400 mt-1 truncate">{stats.favoriteCat}</h4></div>
+                            <div className="p-3 bg-violet-500/10 text-violet-400 rounded-xl"><Icon name="heart" /></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="text-blue-400"><Icon name="activity" /></span> En curso ({inProgress.length})
+                        </h3>
+                        {inProgress.length === 0 ? (
+                            <div className="bg-dark-card border border-dark-border p-8 text-center rounded-2xl text-gray-400 text-sm">No estás consumiendo nada en este momento.</div>
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {inProgress.map(item => {
+                                    const cat = CATEGORIES.find(c => c.id === item.category);
+                                    return (
+                                        <div key={item.id} onClick={() => onItemClick(item)} className="bg-dark-card border border-dark-border rounded-xl overflow-hidden cursor-pointer hover:border-indigo-500/50 transition-all group">
+                                            <div className="aspect-[4/5] bg-slate-800 relative overflow-hidden">
+                                                <img src={item.cover || `https://placehold.co/400x500/1e293b/cbd5e1?text=${encodeURIComponent(item.title)}`} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                <div className="absolute top-2 left-2 bg-dark-bg/80 backdrop-blur-sm border border-slate-700/50 p-1.5 rounded-lg">
+                                                    <Icon name={cat?.icon || 'help-circle'} className={`w-4 h-4 ${cat?.color}`} />
+                                                </div>
+                                            </div>
+                                            <div className="p-3">
+                                                <h4 className="font-semibold text-white truncate text-sm">{item.title}</h4>
+                                                <p className="text-xs text-indigo-400 mt-1 capitalize">{cat?.name}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div>
+                        <h3 className="text-xl font-bold text-white mb-4">Navegar por Categorías</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {CATEGORIES.map(cat => {
+                                const count = items.filter(i => i.category === cat.id).length;
+                                return (
+                                    <button key={cat.id} onClick={() => onCategoryClick(cat.id)} className="bg-dark-card border border-dark-border hover:border-slate-600 p-4 rounded-xl flex flex-col items-center text-center transition-all">
+                                        <div className={`p-3 rounded-full ${cat.bg} mb-2`}><Icon name={cat.icon} className={`w-6 h-6 ${cat.color}`} /></div>
+                                        <span className="font-semibold text-white text-sm">{cat.name}</span>
+                                        <span className="text-xs text-gray-400 mt-1">{count} items</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const MyList = ({ items, initialCategory, onItemClick }) => {
+            const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'todos');
+            const [selectedStatus, setSelectedStatus] = useState('todos');
+            const [search, setSearch] = useState('');
+
+            useEffect(() => { if (initialCategory) setSelectedCategory(initialCategory); }, [initialCategory]);
+
+            const filteredItems = useMemo(() => {
+                return items.filter(item => {
+                    const matchesCat = selectedCategory === 'todos' || item.category === selectedCategory;
+                    const matchesStat = selectedStatus === 'todos' || item.status === selectedStatus;
+                    const matchesSearch = item.title.toLowerCase().includes(search.toLowerCase()) || (item.originalTitle && item.originalTitle.toLowerCase().includes(search.toLowerCase()));
+                    return matchesCat && matchesStat && matchesSearch;
+                });
+            }, [items, selectedCategory, selectedStatus, search]);
+
+            return (
+                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6 px-4 md:px-0">
+                    <div className="lg:col-span-1 space-y-6">
+                        <div className="bg-dark-card border border-dark-border p-5 rounded-2xl space-y-4">
+                            <h3 className="font-bold text-white text-lg flex items-center gap-2"><Icon name="sliders" className="text-indigo-400" /> Filtros</h3>
+                            <div className="relative">
+                                <input type="text" placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-10 py-2.5 text-sm text-white focus:border-indigo-500 outline-none" />
+                                <span className="absolute left-3.5 top-3 text-gray-400"><Icon name="search" className="w-4 h-4" /></span>
+                            </div>
+                            
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-gray-400 uppercase block mb-2">Categoría</label>
+                                <button onClick={() => setSelectedCategory('todos')} className={`w-full text-left px-3 py-2 rounded-xl text-sm font-medium flex justify-between ${selectedCategory === 'todos' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-slate-800'}`}>
+                                    <span>📂 Todos</span><span className="text-xs px-2 bg-black/20 rounded-full">{items.length}</span>
+                                </button>
+                                {CATEGORIES.map(cat => (
+                                    <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`w-full text-left px-3 py-2 rounded-xl text-sm font-medium flex justify-between ${selectedCategory === cat.id ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-slate-800'}`}>
+                                        <span className="flex items-center gap-2"><Icon name={cat.icon} className="w-4 h-4" /> {cat.name}</span>
+                                        <span className="text-xs px-2 bg-black/20 rounded-full">{items.filter(i => i.category === cat.id).length}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="lg:col-span-3">
+                        <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="list" className="text-indigo-400" /> Resultados ({filteredItems.length})</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {filteredItems.map(item => {
+                                const statusObj = STATUSES.find(s => s.id === item.status);
+                                const catObj = CATEGORIES.find(c => c.id === item.category);
+                                return (
+                                    <div key={item.id} onClick={() => onItemClick(item)} className="bg-dark-card border border-dark-border rounded-xl overflow-hidden cursor-pointer hover:border-indigo-500/50 transition-all group flex flex-col">
+                                        <div className="aspect-[3/4] bg-slate-800 relative overflow-hidden">
+                                            <img src={item.cover || `https://placehold.co/400x500/1e293b/cbd5e1?text=${encodeURIComponent(item.title)}`} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                            <span className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold ${statusObj?.color}`}>{statusObj?.icon} {statusObj?.name}</span>
+                                        </div>
+                                        <div className="p-3 flex flex-col flex-1 justify-between gap-1.5">
+                                            <h4 className="font-bold text-white text-sm line-clamp-1">{item.title}</h4>
+                                            <div className="flex items-center gap-1.5 pt-2 border-t border-slate-800 text-[10px] sm:text-xs">
+                                                <Icon name={catObj?.icon} className={`w-3.5 h-3.5 ${catObj?.color}`} /><span className="text-gray-400 capitalize">{catObj?.name}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ItemForm = ({ item, onSave, onCancel }) => {
+            const [category, setCategory] = useState(item ? item.category : 'videojuegos');
+            const [title, setTitle] = useState(item ? item.title : '');
+            const [originalTitle, setOriginalTitle] = useState(item ? item.originalTitle : '');
+            const [cover, setCover] = useState(item ? item.cover : '');
+            const [status, setStatus] = useState(item ? item.status : 'pendiente');
+            const [score, setScore] = useState(item ? item.score : 0);
+            const [notes, setNotes] = useState(item ? item.notes : '');
+
+            // Atributos Específicos
+            const [spec, setSpec] = useState(item?.specifics || {});
+
+            const handleSpec = (k, v) => setSpec({ ...spec, [k]: v });
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!title.trim()) return;
+                onSave({ id: item?.id, title, originalTitle, category, cover, status, score: Number(score), notes, specifics: spec });
+            };
+
+            return (
+                <div className="max-w-2xl mx-auto bg-dark-card border border-dark-border p-6 rounded-2xl shadow-2xl">
+                    <h2 className="text-xl font-bold text-white mb-6 border-b border-slate-800 pb-2">{item ? 'Editar' : 'Añadir'}</h2>
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="space-y-2">
+                            <label className="text-sm text-gray-300">Categoría</label>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {CATEGORIES.map(cat => (
+                                    <button type="button" key={cat.id} onClick={() => { setCategory(cat.id); setSpec({}); }} className={`flex items-center gap-2 p-2 rounded-xl border text-xs font-medium ${category === cat.id ? 'bg-indigo-600/20 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-gray-400'}`}>
+                                        <Icon name={cat.icon} className={`w-4 h-4 ${cat.color}`} /> {cat.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <input type="text" required value={title} onChange={e => setTitle(e.target.value)} placeholder="Título principal *" className="bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-2 text-sm text-white w-full outline-none focus:border-indigo-500" />
+                            <input type="text" value={originalTitle} onChange={e => setOriginalTitle(e.target.value)} placeholder="Título original (opcional)" className="bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-2 text-sm text-white w-full outline-none focus:border-indigo-500" />
+                            <input type="url" value={cover} onChange={e => setCover(e.target.value)} placeholder="URL de portada" className="bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-2 text-sm text-white w-full outline-none focus:border-indigo-500" />
+                            <select value={status} onChange={e => setStatus(e.target.value)} className="bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-2 text-sm text-white w-full outline-none focus:border-indigo-500">
+                                {STATUSES.map(stat => <option key={stat.id} value={stat.id}>{stat.icon} {stat.name}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Campos dinámicos rápidos basados en categoría para simplificar el código */}
+                        <div className="bg-slate-900/40 p-4 rounded-xl grid grid-cols-2 gap-3 text-sm">
+                            {category === 'videojuegos' && (
+                                <>
+                                    <input type="number" placeholder="Horas" value={spec.hours||''} onChange={e=>handleSpec('hours', e.target.value)} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+                                    <input type="text" placeholder="Plataforma" value={spec.platform||''} onChange={e=>handleSpec('platform', e.target.value)} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+                                </>
+                            )}
+                            {['series','anime'].includes(category) && (
+                                <>
+                                    <input type="number" placeholder="Episodio" value={spec.episode||''} onChange={e=>handleSpec('episode', e.target.value)} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+                                    <input type="number" placeholder="Total Eps" value={spec.totalEpisodes||''} onChange={e=>handleSpec('totalEpisodes', e.target.value)} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+                                </>
+                            )}
+                            {/* Expandible según necesidad, mantenido corto para demostración compacta, asume uso genérico */}
+                             <input type="text" placeholder="Dato Extra (Autor, Estudio...)" value={spec.extra||''} onChange={e=>handleSpec('extra', e.target.value)} className="col-span-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-sm text-gray-300 block mb-1">Nota (1-10)</label>
+                                <input type="number" min="0" max="10" value={score} onChange={e => setScore(e.target.value)} className="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-2 text-white outline-none focus:border-indigo-500" />
+                            </div>
+                        </div>
+                        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows="3" placeholder="Reseña..." className="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-2 text-white outline-none focus:border-indigo-500"></textarea>
+
+                        <div className="flex gap-3 justify-end pt-2">
+                            <button type="button" onClick={onCancel} className="px-5 py-2 bg-slate-800 text-white rounded-xl text-sm">Cancelar</button>
+                            <button type="submit" className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold">Guardar</button>
+                        </div>
+                    </form>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [items, setItems] = useState([]);
+            const [cloudConfig, setCloudConfig] = useState(() => JSON.parse(localStorage.getItem('miTrackList_cloud')) || null);
+            const [syncStatus, setSyncStatus] = useState('idle'); // idle, syncing, success, error, off
+            
+            const [view, setView] = useState('dashboard');
+            const [selectedCategory, setSelectedCategory] = useState(null);
+            const [isFormOpen, setIsFormOpen] = useState(false);
+            const [itemToEdit, setItemToEdit] = useState(null);
+            const [selectedItemDetail, setSelectedItemDetail] = useState(null);
+            const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+            const [showCloudSettings, setShowCloudSettings] = useState(false);
+
+            // API calls a JSONBin
+            const API_URL = 'https://api.jsonbin.io/v3/b';
+
+            // Cargar datos locales iniciales si no hay nube
+            useEffect(() => {
+                const localData = localStorage.getItem('miTrackList_data');
+                if (localData) {
+                    try { setItems(JSON.parse(localData)); } catch(e) {}
+                }
+                
+                // Si hay config de nube, intentar traer datos al iniciar
+                if (cloudConfig) {
+                    syncFromCloud(cloudConfig);
+                } else {
+                    setSyncStatus('off');
+                }
+            }, []);
+
+            const syncFromCloud = async (config) => {
+                setSyncStatus('syncing');
+                try {
+                    const res = await fetch(`${API_URL}/${config.binId}/latest`, {
+                        headers: { 'X-Master-Key': config.apiKey }
+                    });
+                    if (!res.ok) throw new Error('API Error');
+                    const data = await res.json();
+                    
+                    if (data.record && Array.isArray(data.record)) {
+                        setItems(data.record);
+                        localStorage.setItem('miTrackList_data', JSON.stringify(data.record));
+                        setSyncStatus('success');
+                        setTimeout(() => setSyncStatus('idle'), 2000);
+                    }
+                } catch (e) {
+                    console.error("Error fetching cloud", e);
+                    setSyncStatus('error');
+                }
+            };
+
+            const syncToCloud = async (config, dataToSave) => {
+                setSyncStatus('syncing');
+                try {
+                    const res = await fetch(`${API_URL}/${config.binId}`, {
+                        method: 'PUT',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'X-Master-Key': config.apiKey
+                        },
+                        body: JSON.stringify(dataToSave)
+                    });
+                    if (!res.ok) throw new Error('API Error');
+                    setSyncStatus('success');
+                    setTimeout(() => setSyncStatus('idle'), 2000);
+                } catch (e) {
+                    console.error("Error saving cloud", e);
+                    setSyncStatus('error');
+                }
+            };
+
+            // Función unificada para guardar cambios
+            const updateItemsAndSync = (newItems) => {
+                setItems(newItems);
+                localStorage.setItem('miTrackList_data', JSON.stringify(newItems));
+                if (cloudConfig) {
+                    syncToCloud(cloudConfig, newItems);
+                }
+            };
+
+            const handleCloudSetup = (config, action) => {
+                if (action === 'disconnect') {
+                    setCloudConfig(null);
+                    localStorage.removeItem('miTrackList_cloud');
+                    setSyncStatus('off');
+                    setShowCloudSettings(false);
+                    return;
+                }
+
+                setCloudConfig(config);
+                localStorage.setItem('miTrackList_cloud', JSON.stringify(config));
+                
+                if (action === 'download') {
+                    syncFromCloud(config);
+                } else if (action === 'upload') {
+                    syncToCloud(config, items);
+                }
+                setShowCloudSettings(false);
+            };
+
+            // CRUD
+            const handleSaveItem = (itemData) => {
+                let newItems;
+                if (itemData.id) {
+                    newItems = items.map(i => i.id === itemData.id ? itemData : i);
+                    if (selectedItemDetail?.id === itemData.id) setSelectedItemDetail(itemData);
+                } else {
+                    newItems = [{ ...itemData, id: Date.now().toString(), startDate: new Date().toISOString().split('T')[0] }, ...items];
+                }
+                updateItemsAndSync(newItems);
+                setIsFormOpen(false);
+            };
+
+            const handleDeleteItem = (id) => {
+                const newItems = items.filter(i => i.id !== id);
+                updateItemsAndSync(newItems);
+                setSelectedItemDetail(null);
+            };
+
+            // Status Badge Widget
+            const SyncBadge = () => {
+                if (syncStatus === 'off') return <div className="text-xs text-gray-500 flex items-center gap-1"><Icon name="cloud-off" className="w-3.5 h-3.5"/> Local</div>;
+                if (syncStatus === 'syncing') return <div className="text-xs text-blue-400 flex items-center gap-1"><Icon name="refresh-cw" className="w-3.5 h-3.5 animate-spin-slow"/> Sincronizando</div>;
+                if (syncStatus === 'error') return <div className="text-xs text-red-400 flex items-center gap-1"><Icon name="alert-triangle" className="w-3.5 h-3.5"/> Error Nube</div>;
+                return <div className="text-xs text-emerald-400 flex items-center gap-1"><Icon name="cloud-check" className="w-3.5 h-3.5"/> Sincronizado</div>;
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden bg-[#0f172a]">
+                    
+                    <aside className="hidden lg:flex flex-col w-64 bg-dark-card border-r border-dark-border py-6 px-4 shrink-0 justify-between">
+                        <div className="space-y-8">
+                            <div className="flex items-center gap-3 px-2 cursor-pointer" onClick={() => setView('dashboard')}>
+                                <div className="bg-gradient-to-tr from-indigo-500 to-violet-600 p-2 rounded-xl text-white">
+                                    <Icon name="bookmark-check" className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h1 className="font-extrabold text-white text-lg leading-none">MiTrackList</h1>
+                                    <SyncBadge />
+                                </div>
+                            </div>
+
+                            <nav className="space-y-1.5">
+                                <button onClick={() => setView('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold ${view === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-slate-800'}`}><Icon name="layout-dashboard" className="w-5 h-5" /> Inicio</button>
+                                <button onClick={() => setView('list')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold ${view === 'list' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-slate-800'}`}><Icon name="list" className="w-5 h-5" /> Mi Lista</button>
+                                <button onClick={() => setShowCloudSettings(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-gray-400 hover:bg-slate-800"><Icon name="cloud" className="w-5 h-5" /> Ajustes Nube</button>
+                            </nav>
+                        </div>
+                        <button onClick={() => setIsFormOpen(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-bold text-sm transition-all"><Icon name="plus-circle" className="w-5 h-5" /> Añadir Nuevo</button>
+                    </aside>
+
+                    <div className="flex-1 flex flex-col min-w-0">
+                        <header className="lg:hidden bg-dark-card border-b border-dark-border px-4 py-3 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-2" onClick={() => setView('dashboard')}>
+                                <div className="bg-indigo-600 p-1.5 rounded-lg text-white"><Icon name="bookmark-check" className="w-5 h-5" /></div>
+                                <div><h1 className="font-bold text-white leading-tight">MiTrackList</h1><SyncBadge /></div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setShowCloudSettings(true)} className="text-gray-300 p-2"><Icon name="cloud" className="w-5 h-5" /></button>
+                                <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-gray-300 p-2"><Icon name={mobileMenuOpen ? 'x' : 'menu'} /></button>
+                            </div>
+                        </header>
+
+                        {mobileMenuOpen && (
+                            <div className="lg:hidden bg-dark-card border-b border-dark-border py-4 px-4 space-y-2 z-10 absolute w-full mt-[60px]">
+                                <button onClick={() => { setView('dashboard'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-slate-800"><Icon name="layout-dashboard" className="w-4 h-4" /> Inicio</button>
+                                <button onClick={() => { setView('list'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-slate-800"><Icon name="list" className="w-4 h-4" /> Mi Lista</button>
+                                <button onClick={() => { setIsFormOpen(true); setMobileMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-bold mt-4"><Icon name="plus" className="w-4 h-4" /> Añadir Contenido</button>
+                            </div>
+                        )}
+
+                        <main className="flex-1 overflow-y-auto py-8 sm:py-10">
+                            {isFormOpen ? (
+                                <ItemForm item={itemToEdit} onSave={handleSaveItem} onCancel={() => setIsFormOpen(false)} />
+                            ) : view === 'dashboard' ? (
+                                <Dashboard items={items} onCategoryClick={(c) => {setSelectedCategory(c); setView('list');}} onItemClick={setSelectedItemDetail} />
+                            ) : (
+                                <MyList items={items} initialCategory={selectedCategory} onItemClick={setSelectedItemDetail} />
+                            )}
+                        </main>
+                    </div>
+
+                    {selectedItemDetail && <ItemDetailModal item={selectedItemDetail} onClose={() => setSelectedItemDetail(null)} onEdit={(item) => { setSelectedItemDetail(null); setItemToEdit(item); setIsFormOpen(true); }} onDelete={handleDeleteItem} />}
+                    {showCloudSettings && <CloudSettingsModal config={cloudConfig} syncStatus={syncStatus} onClose={() => setShowCloudSettings(false)} onSave={handleCloudSetup} />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
